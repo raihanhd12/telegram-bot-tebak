@@ -32,6 +32,7 @@ python-dotenv = "*"
 redis = "*"
 httpx = "*"
 loguru = "*"
+python-telegram-bot = "*"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
@@ -44,9 +45,6 @@ black = "*"
 isort = "*"
 ruff = "*"
 mypy = "*"
-
-# build app
-python-telegram-bot = "*"
 
 # Type Stubs
 types-redis = "*"
