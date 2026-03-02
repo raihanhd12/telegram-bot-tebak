@@ -33,5 +33,5 @@ COPY . .
 
 USER nonroot
 
-# Run migrations and start the application
-CMD ["python", "-c", "import subprocess; subprocess.check_call(['alembic', 'upgrade', 'head']); import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=8000)"]
+# Run migrations and start the bot
+CMD ["python", "-c", "import subprocess; subprocess.check_call(['alembic', 'upgrade', 'head']); import main; main.main()"]

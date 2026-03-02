@@ -45,6 +45,9 @@ isort = "*"
 ruff = "*"
 mypy = "*"
 
+# build app
+python-telegram-bot = "*"
+
 # Type Stubs
 types-redis = "*"
 

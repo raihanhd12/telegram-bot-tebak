@@ -1,10 +1,12 @@
-"""Environment configuration for FastAPI application.
+"""Environment configuration for Telegram Bot application.
 
 This module loads and provides access to environment variables for:
 - Application settings (host, port, environment)
 - Database configuration
 - Security settings (API keys, secrets)
-- Server settings (workers, etc.)
+- Telegram Bot settings
+- Game settings (timeout, hints, etc.)
+- LLM Integration settings
 
 Priority: OS environment > .env file > default value
 """
@@ -125,8 +127,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = parse_int_env("ACCESS_TOKEN_EXPIRE_MINUTES", 30)
 # 🗄️ DATABASE SETTINGS
 # ================================
 DATABASE_URL = (
-    get_env("DATABASE_URL")
-    or "postgresql+psycopg://postgres:postgres@localhost:5432/fastapi_db"
+    get_env("DATABASE_URL") or "postgresql+psycopg://postgres:postgres@localhost:5432/fastapi_db"
 )
 DATABASE_ECHO = parse_bool_env("DATABASE_ECHO", default=DEVELOPMENT)
 DATABASE_POOL_SIZE = parse_int_env("DATABASE_POOL_SIZE", 5)
@@ -170,3 +171,55 @@ elif STAGING:
 else:
     # Development specific settings
     _env_logger.info("Running in DEVELOPMENT mode")
+
+
+# ================================
+# 🤖 TELEGRAM BOT SETTINGS
+# ================================
+BOT_TOKEN = get_env("BOT_TOKEN") or ""
+BOT_USERNAME = get_env("BOT_USERNAME") or ""
+
+# ================================
+# 🎮 GAME SETTINGS
+# ================================
+GAME_TIMEOUT = parse_int_env("GAME_TIMEOUT", 60)  # seconds
+HINT_PENALTY = float(get_env("HINT_PENALTY", "0.5"))  # 50% penalty per hint
+MAX_HINTS = parse_int_env("MAX_HINTS", 3)
+MAX_USED_COUNT = parse_int_env("MAX_USED_COUNT", 3)  # questions can be reused 3 times
+
+# ================================
+# 🧠 LLM INTEGRATION SETTINGS (Agent API)
+# ================================
+# LLM Agent API base URL
+# Example: "https://agent.admasolusi.space"
+LLM_URL = get_env("LLM_URL") or ""
+
+# API key for service gateway/auth header (x-api-key).
+# Backward-compatible aliases:
+# - LLM_API_KEY (older single-key naming)
+LLM_HEADER_API_KEY = get_env("LLM_HEADER_API_KEY") or get_env("LLM_API_KEY") or ""
+
+# API key that must be sent inside execute payload body as `api_key`.
+# Backward-compatible aliases:
+# - LLM_AGENT_API_KEY
+# - LLM_API_KEY (older single-key naming)
+LLM_MODEL_API_KEY = (
+    get_env("LLM_MODEL_API_KEY") or get_env("LLM_AGENT_API_KEY") or get_env("LLM_API_KEY") or ""
+)
+
+# Backward compatibility shim for older code paths.
+LLM_API_KEY = LLM_HEADER_API_KEY
+
+# Desired output type from agent API response format.
+# Common values: json | markdown | html
+LLM_OUTPUT_TYPE = get_env("LLM_OUTPUT_TYPE", "json") or "json"
+
+# LLM Agent ID for /api/v1/agents/{agent_id}/execute endpoint
+LLM_AGENT_ID = get_env("LLM_AGENT_ID") or ""
+
+# Number of questions to generate per refresh
+LLM_REFRESH_COUNT = parse_int_env("LLM_REFRESH_COUNT", 5)  # questions per refresh
+
+# Cooldown per chat for /refresh command to prevent spam.
+# Set 0 to disable cooldown.
+LLM_REFRESH_COOLDOWN_SECONDS = parse_int_env("LLM_REFRESH_COOLDOWN_SECONDS", 120)
