@@ -100,6 +100,27 @@ def _resolve_target_player(
     if not message:
         return None, "❌ Message tidak valid."
 
+    if args:
+        target = args[0].strip()
+        if not target:
+            return None, "❌ Target player kosong."
+
+        if target.isdigit():
+            telegram_id = int(target)
+            player = PlayerRepository.get_by_telegram_id(db, telegram_id)
+            if not player:
+                player = PlayerRepository.create_player(db, telegram_id=telegram_id)
+            return player, None
+
+        player = PlayerRepository.get_by_username(db, target)
+        if not player:
+            return (
+                None,
+                f"❌ Player dengan username `{target}` belum ditemukan di database.\n"
+                "Coba pakai reply ke pesan user tersebut lalu jalankan command lagi.",
+            )
+        return player, None
+
     reply_message = getattr(message, "reply_to_message", None)
     if reply_message is not None:
         replied_user = reply_message.from_user
@@ -115,27 +136,10 @@ def _resolve_target_player(
         )
         return player, None
 
-    if not args:
-        return (
-            None,
-            "❌ Tentukan target player.\nGunakan `/verify @username` atau reply pesan user lalu `/verify`.",
-        )
-
-    target = args[0].strip()
-    if not target:
-        return None, "❌ Target player kosong."
-
-    if target.isdigit():
-        telegram_id = int(target)
-        player = PlayerRepository.get_by_telegram_id(db, telegram_id)
-        if not player:
-            player = PlayerRepository.create_player(db, telegram_id=telegram_id)
-        return player, None
-
-    player = PlayerRepository.get_by_username(db, target)
-    if not player:
-        return None, f"❌ Player dengan username `{target}` belum ditemukan di database."
-    return player, None
+    return (
+        None,
+        "❌ Tentukan target player.\nGunakan `/verify @username` atau reply pesan user lalu `/verify`.",
+    )
 
 
 async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
