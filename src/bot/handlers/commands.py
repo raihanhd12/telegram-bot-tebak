@@ -443,15 +443,18 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
         llm_service = get_llm_service()
+        refresh_success = False
         try:
             success, count, message = await llm_service.refresh_questions(count=env.LLM_REFRESH_COUNT)
+            refresh_success = success
             response_text = message or "❌ Gagal generate soal."
         except Exception:
             logger.exception("Failed to refresh questions")
             response_text = "❌ Gagal generate soal karena koneksi LLM/DB bermasalah."
         finally:
             llm_service.db.close()
-            _refresh_last_run_at[scoped_chat_id] = time.monotonic()
+            if refresh_success:
+                _refresh_last_run_at[scoped_chat_id] = time.monotonic()
 
         # Update the status message
         try:
