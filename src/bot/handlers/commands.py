@@ -8,12 +8,14 @@ import asyncio
 import logging
 import time
 
+from sqlalchemy.orm import Session
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 import src.config.env as env
+from src.app.models import Player
 from src.app.repositories.player import PlayerRepository
 from src.bot.dependencies import get_game_service, get_llm_service
 from src.bot.keyboards import main_menu_keyboard
@@ -88,14 +90,21 @@ async def _is_bot_admin(
     return await is_user_admin(update, context, telegram_user_id)
 
 
-def _resolve_target_player(update: Update, args: list[str], db) -> tuple[object | None, str | None]:
+def _resolve_target_player(
+    update: Update,
+    args: list[str] | None,
+    db: Session,
+) -> tuple[Player | None, str | None]:
     """Resolve target player from reply message or command argument."""
     message = update.effective_message
     if not message:
         return None, "❌ Message tidak valid."
 
-    if getattr(message, "reply_to_message", None) and message.reply_to_message.from_user:
-        replied_user = message.reply_to_message.from_user
+    reply_message = getattr(message, "reply_to_message", None)
+    if reply_message is not None:
+        replied_user = reply_message.from_user
+        if replied_user is None:
+            return None, "❌ User pada pesan reply tidak ditemukan."
         if replied_user.is_bot:
             return None, "❌ Tidak bisa verifikasi akun bot."
         player = PlayerRepository.get_or_create_by_telegram_id(

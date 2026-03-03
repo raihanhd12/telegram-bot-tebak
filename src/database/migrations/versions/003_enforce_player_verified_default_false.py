@@ -1,6 +1,6 @@
 """Enforce players.is_verified default false
 
-Revision ID: 003_enforce_player_verified_default_false
+Revision ID: 003_player_verified_false
 Revises: 002_add_player_is_verified
 Create Date: 2026-03-03
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "003_enforce_player_verified_default_false"
+revision: str = "003_player_verified_false"
 down_revision: Union[str, None] = "002_add_player_is_verified"
 branch_labels: Union[str, list[str], None] = None
 depends_on: Union[str, list[str], None] = None
