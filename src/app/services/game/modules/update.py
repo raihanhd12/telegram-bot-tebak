@@ -105,6 +105,15 @@ class GameUpdateService:
         # Reveal answer characters gradually so "keterangan" stays hidden until round ends.
         revealed_char = self._reveal_random_char(question.answer, game.current_hint_count)
         hint_count = game.current_hint_count
+        newly_revealed = self._get_newly_revealed_positions(question.answer, hint_count)
+        newly_revealed_text = (
+            ", ".join(
+                f"huruf ke-{position} = {char.upper()}"
+                for position, char in newly_revealed
+            )
+            if newly_revealed
+            else "-"
+        )
 
         # Calculate remaining points
         original_points = question.points
@@ -114,7 +123,8 @@ class GameUpdateService:
 
         message = (
             f"💡 Hint {hint_count}/{self.max_hints}\n"
-            f"{revealed_char}\n\n"
+            f"{revealed_char}\n"
+            f"🔓 Terbuka: {newly_revealed_text}\n\n"
             f"Poin tersisa: {remaining_points} (dari {original_points})"
         )
 
@@ -214,12 +224,11 @@ class GameUpdateService:
             String with some characters revealed
         """
         chars = list(answer)
-        revealable_indexes = [idx for idx, char in enumerate(chars) if char.isalnum()]
+        revealable_indexes = self._get_revealable_indexes(answer)
         if not revealable_indexes:
             return answer
 
-        revealed_count = min(len(revealable_indexes), max(1, hint_count * 2))
-        revealed_indexes = set(revealable_indexes[:revealed_count])
+        revealed_indexes = self._get_revealed_indexes(answer, hint_count)
 
         result = []
         for idx, char in enumerate(chars):
@@ -231,3 +240,41 @@ class GameUpdateService:
                 result.append("_")
 
         return "".join(result)
+
+    @staticmethod
+    def _get_revealable_indexes(answer: str) -> list[int]:
+        """Get indexes of alphanumeric characters that can be revealed."""
+        return [idx for idx, char in enumerate(answer) if char.isalnum()]
+
+    def _get_revealed_indexes(self, answer: str, hint_count: int) -> set[int]:
+        """Get absolute indexes currently revealed at a hint level."""
+        if hint_count < 1:
+            return set()
+        revealable_indexes = self._get_revealable_indexes(answer)
+        if not revealable_indexes:
+            return set()
+        revealed_count = min(len(revealable_indexes), max(1, hint_count * 2))
+        return set(revealable_indexes[:revealed_count])
+
+    def _get_newly_revealed_positions(self, answer: str, hint_count: int) -> list[tuple[int, str]]:
+        """
+        Get newly revealed letters for a hint.
+
+        Position index is 1-based and counts only alphanumeric characters.
+        """
+        if hint_count < 1:
+            return []
+
+        revealable_indexes = self._get_revealable_indexes(answer)
+        if not revealable_indexes:
+            return []
+
+        current_revealed = self._get_revealed_indexes(answer, hint_count)
+        previous_revealed = self._get_revealed_indexes(answer, hint_count - 1)
+        position_map = {abs_idx: pos for pos, abs_idx in enumerate(revealable_indexes, start=1)}
+
+        newly_revealed_indexes = [
+            idx for idx in revealable_indexes if idx in current_revealed and idx not in previous_revealed
+        ]
+
+        return [(position_map[idx], answer[idx]) for idx in newly_revealed_indexes]

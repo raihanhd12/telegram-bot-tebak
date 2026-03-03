@@ -15,6 +15,7 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 - Refresh bank soal dari LLM: `/refresh` (admin only)
 - Isolasi game per topic Telegram (forum thread)
 - Lock bot ke satu topic dengan `/initiate` (admin)
+- Auto reset bank soal saat stok fresh habis
 - Soal campuran gaya TTS (lucu + mind-blowing)
 - Satu game aktif per chat
 - Timeout game
@@ -33,10 +34,12 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 
 ### 1) Flow `/tebak`
 1. User kirim `/tebak` di Telegram.
-2. `CommandHandler` di `src/bot/handlers/commands.py` memanggil `GameService.start_game()`.
-3. Service cek game aktif, ambil soal fresh dari `QuestionRepository`.
-4. Service membuat game baru + player/game_player bila perlu.
-5. Bot balas pertanyaan TTS, poin, dan durasi.
+2. Jika masih ada game aktif, bot menolak membuat ronde baru.
+3. `CommandHandler` di `src/bot/handlers/commands.py` memanggil `GameService.start_game()`.
+4. Service ambil soal fresh dari `QuestionRepository`.
+5. Jika stok fresh habis, service reset pool soal lalu ambil ulang.
+6. Service membuat game baru + player/game_player bila perlu.
+7. Bot balas pertanyaan TTS + pola jawaban (contoh `A**M`), poin, dan durasi.
 
 ### 2) Flow jawaban text biasa
 1. User kirim text biasa (bukan command).
@@ -53,7 +56,7 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 1. Handler panggil `GameService.use_hint()`.
 2. Service cek game aktif, belum expired, dan limit hint.
 3. Service naikkan `current_hint_count`, hitung penalty poin.
-4. Bot kirim mask jawaban (sebagian huruf dibuka).
+4. Bot kirim mask jawaban + info huruf yang baru terbuka (contoh: `huruf ke-3 = A`).
 
 ### 4) Flow `/refresh` (LLM)
 1. Handler cek user admin group.

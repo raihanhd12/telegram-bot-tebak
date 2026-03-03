@@ -47,7 +47,10 @@ def get_message_thread_id(update: Update) -> int | None:
     """Get message thread ID (topic ID) from update, if any."""
     if not update.effective_message:
         return None
-    thread_id = getattr(update.effective_message, "message_thread_id", None)
+    message = update.effective_message
+    thread_id = getattr(message, "message_thread_id", None)
+    if thread_id is None and getattr(message, "reply_to_message", None):
+        thread_id = getattr(message.reply_to_message, "message_thread_id", None)
     return int(thread_id) if thread_id is not None else None
 
 

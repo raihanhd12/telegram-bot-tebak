@@ -213,6 +213,33 @@ class QuestionRepository:
         return count
 
     @staticmethod
+    def reset_question_pool(db: Session, category: Category | None = None) -> int:
+        """
+        Reset question usage counters so exhausted question banks can be reused.
+
+        Args:
+            db: Database session
+            category: Optional category filter
+
+        Returns:
+            Number of questions reset
+        """
+        query = db.query(Question)
+
+        if category:
+            query = query.filter(Question.category == QuestionRepository._enum_value(category))
+
+        count = query.update(
+            {
+                "used_count": 0,
+                "last_used_at": None,
+                "is_active": True,
+            }
+        )
+        db.commit()
+        return count
+
+    @staticmethod
     def count_active_questions(db: Session, category: Category | None = None) -> int:
         """Count active questions, optionally by category"""
         query = db.query(Question).filter(Question.is_active)

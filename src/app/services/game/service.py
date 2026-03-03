@@ -74,6 +74,14 @@ class GameService:
         Returns:
             Tuple of (Game, formatted_message) or (None, error_message)
         """
+        active_game = self.read.get_active_game(chat_id)
+        if active_game:
+            return (
+                None,
+                "⚠️ Masih ada soal aktif di topic ini.\n"
+                "Selesaikan dulu dengan jawab soal, atau pakai /skip.",
+            )
+
         try:
             validated_category = GameValidators.validate_category(category)
         except ValueError as e:
@@ -137,7 +145,13 @@ class GameService:
         game = self.read.get_active_game(chat_id)
 
         if not game:
-            return False, "❌ Tidak ada game aktif. Ketik /tebak untuk mulai!", 0
+            return (
+                False,
+                "❌ Tidak ada game aktif di topic ini.\n"
+                "Kemungkinan game sudah selesai/timeout, atau kamu kirim jawaban di topic berbeda.\n"
+                "Ketik /tebak untuk mulai ronde baru.",
+                0,
+            )
 
         # Get or create player
         player = self.create.ensure_player_in_game(game, telegram_id, username, full_name)
@@ -198,7 +212,11 @@ class GameService:
         game = self.read.get_active_game(chat_id)
 
         if not game:
-            return False, "❌ Tidak ada game aktif."
+            return (
+                False,
+                "❌ Tidak ada game aktif di topic ini.\n"
+                "Kemungkinan game sudah selesai/timeout, atau command dikirim di topic berbeda.",
+            )
 
         success, message, _ = self.update.use_hint(game)
         return success, message
@@ -230,6 +248,7 @@ class GameService:
     def _format_game_start(self, question, was_new: bool) -> str:
         """Format game start message"""
         category_emoji = "😂" if question.category == Category.LUCU else "🤯"
+        answer_pattern = self._format_answer_pattern(question.answer)
 
         header = (
             f"🎮 TEBAK TTS {category_emoji}\n\n"
@@ -240,6 +259,7 @@ class GameService:
         message = (
             f"{header}"
             f"🧩 Pertanyaan:\n{question.word}\n\n"
+            f"🔎 Pola jawaban: {answer_pattern}\n"
             f"📌 Kategori: {self._format_category(question.category)}\n"
             f"💰 Poin: {question.points}\n"
             f"⏱️ Waktu: {self.game_timeout} detik\n\n"
@@ -252,6 +272,7 @@ class GameService:
                 f"{header}"
                 f"Game masih aktif, pertanyaannya:\n\n"
                 f"{question.word}\n\n"
+                f"🔎 Pola jawaban: {answer_pattern}\n"
                 f"⏱️ Sisa waktu: cek status game aktif."
             )
 
@@ -279,3 +300,34 @@ class GameService:
             badges.append("🧠 Jenius")
 
         return " | ".join(badges) if badges else ""
+
+    def _format_answer_pattern(self, answer: str) -> str:
+        """Mask answer pattern like AYAM -> A**M to guide players."""
+        return " ".join(self._mask_token(token) for token in answer.split())
+
+    @staticmethod
+    def _mask_token(token: str) -> str:
+        """Mask a token while preserving non-alphanumeric chars."""
+        chars = list(token)
+        alnum_indexes = [idx for idx, ch in enumerate(chars) if ch.isalnum()]
+
+        if not alnum_indexes:
+            return token
+
+        if len(alnum_indexes) == 1:
+            chars[alnum_indexes[0]] = chars[alnum_indexes[0]].upper()
+            return "".join(chars)
+
+        if len(alnum_indexes) == 2:
+            first, second = alnum_indexes
+            chars[first] = chars[first].upper()
+            chars[second] = "*"
+            return "".join(chars)
+
+        first, last = alnum_indexes[0], alnum_indexes[-1]
+        chars[first] = chars[first].upper()
+        chars[last] = chars[last].upper()
+        for idx in alnum_indexes[1:-1]:
+            chars[idx] = "*"
+
+        return "".join(chars)

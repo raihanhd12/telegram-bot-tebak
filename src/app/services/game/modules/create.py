@@ -85,6 +85,10 @@ class GameCreateService:
 
         # Get a fresh question
         question = QuestionRepository.get_fresh_question(self.db, category)
+        if not question:
+            # Auto-reset exhausted question pool and try again.
+            QuestionRepository.reset_question_pool(self.db, category)
+            question = QuestionRepository.get_fresh_question(self.db, category)
 
         if not question:
             return None, starter, False
