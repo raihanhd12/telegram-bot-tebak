@@ -66,7 +66,7 @@ class LLMService:
         Returns:
             Tuple of (success, total_added, message)
         """
-        categories = [category] if category else [Category.LUCU, Category.MIND_BLOWING]
+        categories = [category] if category else [Category.MIND_BLOWING]
         total_added = 0
         messages = []
         results = await asyncio.gather(

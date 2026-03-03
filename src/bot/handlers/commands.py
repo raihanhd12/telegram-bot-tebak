@@ -14,6 +14,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 import src.config.env as env
+from src.app.repositories.player import PlayerRepository
 from src.bot.dependencies import get_game_service, get_llm_service
 from src.bot.keyboards import main_menu_keyboard
 from src.bot.utils.helpers import (
@@ -24,6 +25,8 @@ from src.bot.utils.helpers import (
     is_user_admin,
     unbind_topic,
 )
+from src.bot.utils.timers import cancel_game_countdown, schedule_game_countdown
+from src.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +76,71 @@ def _get_topic_lock_message(chat_id: int, thread_id: int | None) -> str | None:
     )
 
 
+async def _is_bot_admin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    telegram_user_id: int,
+    username: str | None,
+) -> bool:
+    """Check whether user is bot admin based on env allowlist or chat admin role."""
+    if env.ADMIN_TELEGRAM_USERNAMES:
+        return env.is_admin_username(username)
+    return await is_user_admin(update, context, telegram_user_id)
+
+
+def _resolve_target_player(update: Update, args: list[str], db) -> tuple[object | None, str | None]:
+    """Resolve target player from reply message or command argument."""
+    message = update.effective_message
+    if not message:
+        return None, "❌ Message tidak valid."
+
+    if getattr(message, "reply_to_message", None) and message.reply_to_message.from_user:
+        replied_user = message.reply_to_message.from_user
+        if replied_user.is_bot:
+            return None, "❌ Tidak bisa verifikasi akun bot."
+        player = PlayerRepository.get_or_create_by_telegram_id(
+            db=db,
+            telegram_id=replied_user.id,
+            username=replied_user.username,
+            full_name=replied_user.full_name,
+        )
+        return player, None
+
+    if not args:
+        return (
+            None,
+            "❌ Tentukan target player.\nGunakan `/verify @username` atau reply pesan user lalu `/verify`.",
+        )
+
+    target = args[0].strip()
+    if not target:
+        return None, "❌ Target player kosong."
+
+    if target.isdigit():
+        telegram_id = int(target)
+        player = PlayerRepository.get_by_telegram_id(db, telegram_id)
+        if not player:
+            player = PlayerRepository.create_player(db, telegram_id=telegram_id)
+        return player, None
+
+    player = PlayerRepository.get_by_username(db, target)
+    if not player:
+        return None, f"❌ Player dengan username `{target}` belum ditemukan di database."
+    return player, None
+
+
 async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command - welcome message."""
     if not update.effective_message:
+        return
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, _scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
         return
 
     message = (
@@ -89,6 +154,8 @@ async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
         "• `/refresh` - Generate soal baru (Admin)\n\n"
         "• `/initiate` - Kunci bot ke topic ini (Admin)\n"
         "• `/deinitiate` - Lepas kunci topic (Admin)\n\n"
+        "• `/verify` - Verifikasi pemain (Admin)\n"
+        "• `/unverify` - Cabut verifikasi pemain (Admin)\n\n"
         "*Cara Main:*\n"
         "1. Ketik /tebak untuk mulai\n"
         "2. Baca pertanyaan jebakan\n"
@@ -108,6 +175,15 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     """Handle /help command."""
     if not update.effective_message:
         return
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, _scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
+        return
 
     message = (
         "📖 *Panduan Bermain Tebak TTS*\n\n"
@@ -119,6 +195,8 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "• `/refresh` - Generate soal baru (Admin)\n\n"
         "• `/initiate` - Kunci bot ke topic ini (Admin)\n"
         "• `/deinitiate` - Lepas kunci topic (Admin)\n\n"
+        "• `/verify` - Verifikasi pemain (Admin)\n"
+        "• `/unverify` - Cabut verifikasi pemain (Admin)\n\n"
         "*Fitur:*\n"
         "• ⏱️ Game timeout 60 detik\n"
         "• 💡 Max 3 hints per game\n"
@@ -137,7 +215,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
-async def tebak_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def tebak_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /tebak command - start a new game."""
     if not update.effective_message or not update.effective_chat:
         return
@@ -171,6 +249,15 @@ async def tebak_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
             response_text,
             parse_mode=None,
         )
+        if game and game.expires_at:
+            schedule_game_countdown(
+                application=context.application,
+                chat_id=chat_id,
+                thread_id=thread_id,
+                scoped_chat_id=scoped_chat_id,
+                game_id=game.id,
+                expires_at=game.expires_at,
+            )
     except Exception:
         logger.exception("Failed to start game")
         await update.effective_message.reply_text(
@@ -204,13 +291,15 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     # Check if user is admin (for now, allow everyone to skip)
-    is_admin = await is_user_admin(update, context, user.id)
+    is_admin = await _is_bot_admin(update, context, user.id, user.username)
 
     game_service = get_game_service()
     try:
         success, message = game_service.skip_game(
             chat_id=scoped_chat_id,
             user_telegram_id=user.id,
+            username=user.username,
+            full_name=user.full_name,
             is_admin=is_admin,
         )
 
@@ -218,6 +307,8 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             message,
             parse_mode=None,
         )
+        if success:
+            cancel_game_countdown(scoped_chat_id)
     except Exception:
         logger.exception("Failed to skip game")
         await update.effective_message.reply_text(
@@ -265,6 +356,9 @@ async def hint_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     """Handle /hint command - get a hint."""
     if not update.effective_message or not update.effective_chat:
         return
+    user = update.effective_user
+    if not user:
+        return
 
     scope = _resolve_scope(update)
     if not scope:
@@ -278,7 +372,12 @@ async def hint_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
 
     game_service = get_game_service()
     try:
-        success, message = game_service.use_hint(chat_id=scoped_chat_id)
+        success, message = game_service.use_hint(
+            chat_id=scoped_chat_id,
+            telegram_id=user.id,
+            username=user.username,
+            full_name=user.full_name,
+        )
 
         await update.effective_message.reply_text(
             message,
@@ -313,7 +412,7 @@ async def initiate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
 
-    is_admin = await is_user_admin(update, context, user.id)
+    is_admin = await _is_bot_admin(update, context, user.id, user.username)
     if not is_admin:
         await update.effective_message.reply_text(
             "❌ Hanya admin yang bisa lock topic.",
@@ -346,7 +445,7 @@ async def deinitiate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not user:
         return
 
-    is_admin = await is_user_admin(update, context, user.id)
+    is_admin = await _is_bot_admin(update, context, user.id, user.username)
     if not is_admin:
         await update.effective_message.reply_text(
             "❌ Hanya admin yang bisa melepas topic lock.",
@@ -369,6 +468,94 @@ async def deinitiate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 
+async def verify_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Verify a player so they can play."""
+    if not update.effective_message:
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    is_admin = await _is_bot_admin(update, context, user.id, user.username)
+    if not is_admin:
+        await update.effective_message.reply_text(
+            "❌ Hanya admin bot yang bisa verifikasi pemain.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    db = SessionLocal()
+    try:
+        player, error = _resolve_target_player(update, context.args, db)
+        if error:
+            await update.effective_message.reply_text(error, parse_mode=ParseMode.MARKDOWN)
+            return
+        if not player:
+            await update.effective_message.reply_text(
+                "❌ Target player tidak ditemukan.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        PlayerRepository.set_verified(db, player, True)
+        username_display = f"@{player.username}" if player.username else "(tanpa username)"
+        await update.effective_message.reply_text(
+            (
+                "✅ Player berhasil diverifikasi.\n"
+                f"ID: `{player.telegram_id}`\n"
+                f"Username: `{username_display}`"
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    finally:
+        db.close()
+
+
+async def unverify_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Unverify a player so they cannot play."""
+    if not update.effective_message:
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    is_admin = await _is_bot_admin(update, context, user.id, user.username)
+    if not is_admin:
+        await update.effective_message.reply_text(
+            "❌ Hanya admin bot yang bisa mencabut verifikasi pemain.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    db = SessionLocal()
+    try:
+        player, error = _resolve_target_player(update, context.args, db)
+        if error:
+            await update.effective_message.reply_text(error, parse_mode=ParseMode.MARKDOWN)
+            return
+        if not player:
+            await update.effective_message.reply_text(
+                "❌ Target player tidak ditemukan.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        PlayerRepository.set_verified(db, player, False)
+        username_display = f"@{player.username}" if player.username else "(tanpa username)"
+        await update.effective_message.reply_text(
+            (
+                "✅ Verifikasi player dicabut.\n"
+                f"ID: `{player.telegram_id}`\n"
+                f"Username: `{username_display}`"
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    finally:
+        db.close()
+
+
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /refresh command - generate new questions (Admin only)."""
     if not update.effective_message or not update.effective_chat:
@@ -389,7 +576,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # Check if user is admin
-    is_admin = await is_user_admin(update, context, user.id)
+    is_admin = await _is_bot_admin(update, context, user.id, user.username)
 
     if not is_admin:
         await update.effective_message.reply_text(

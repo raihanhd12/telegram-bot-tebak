@@ -5,6 +5,7 @@ CRUD helpers for Player model. Manages player stats and scores.
 """
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.app.models import Player
@@ -22,6 +23,14 @@ class PlayerRepository:
     def get_by_telegram_id(db: Session, telegram_id: int) -> Optional[Player]:
         """Get player by Telegram ID"""
         return db.query(Player).filter(Player.telegram_id == telegram_id).first()
+
+    @staticmethod
+    def get_by_username(db: Session, username: str) -> Optional[Player]:
+        """Get player by username (case-insensitive, without @)."""
+        cleaned = username.strip().lstrip("@").lower()
+        if not cleaned:
+            return None
+        return db.query(Player).filter(func.lower(Player.username) == cleaned).first()
 
     @staticmethod
     def get_or_create_by_telegram_id(
@@ -154,3 +163,12 @@ class PlayerRepository:
         """Delete a player"""
         db.delete(player)
         db.commit()
+
+    @staticmethod
+    def set_verified(db: Session, player: Player, is_verified: bool) -> Player:
+        """Update player verification status."""
+        player.is_verified = bool(is_verified)
+        db.add(player)
+        db.commit()
+        db.refresh(player)
+        return player

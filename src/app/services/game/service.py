@@ -8,7 +8,9 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+import src.config.env as env
 from src.app.models import Category, Game
+from src.app.repositories.player import PlayerRepository
 from src.app.repositories.question import QuestionRepository
 from src.app.services.game.modules import (
     GameCreateService,
@@ -82,6 +84,13 @@ class GameService:
                 "Selesaikan dulu dengan jawab soal, atau pakai /skip.",
             )
 
+        if not self._is_player_verified(
+            starter_telegram_id,
+            username=starter_username,
+            full_name=starter_full_name,
+        ):
+            return None, self._get_verification_block_message()
+
         try:
             validated_category = GameValidators.validate_category(category)
         except ValueError as e:
@@ -153,6 +162,9 @@ class GameService:
                 0,
             )
 
+        if not self._is_player_verified(telegram_id, username=username, full_name=full_name):
+            return False, self._get_verification_block_message(), 0
+
         # Get or create player
         player = self.create.ensure_player_in_game(game, telegram_id, username, full_name)
 
@@ -176,7 +188,12 @@ class GameService:
         return is_correct, message, points
 
     def skip_game(
-        self, chat_id: int, user_telegram_id: int, is_admin: bool = False
+        self,
+        chat_id: int,
+        user_telegram_id: int,
+        username: str | None = None,
+        full_name: str | None = None,
+        is_admin: bool = False,
     ) -> tuple[bool, str]:
         """
         Skip the current game.
@@ -194,12 +211,25 @@ class GameService:
         if not game:
             return False, "❌ Tidak ada game aktif untuk dilewati."
 
+        if not self._is_player_verified(
+            user_telegram_id,
+            username=username,
+            full_name=full_name,
+        ):
+            return False, self._get_verification_block_message()
+
         # For now, allow anyone to skip
         # TODO: Track who started the game and restrict skip
         message = self.update.skip_game(game)
         return True, message
 
-    def use_hint(self, chat_id: int) -> tuple[bool, str]:
+    def use_hint(
+        self,
+        chat_id: int,
+        telegram_id: int | None = None,
+        username: str | None = None,
+        full_name: str | None = None,
+    ) -> tuple[bool, str]:
         """
         Use a hint for the current game.
 
@@ -217,6 +247,13 @@ class GameService:
                 "❌ Tidak ada game aktif di topic ini.\n"
                 "Kemungkinan game sudah selesai/timeout, atau command dikirim di topic berbeda.",
             )
+
+        if telegram_id is not None and not self._is_player_verified(
+            telegram_id,
+            username=username,
+            full_name=full_name,
+        ):
+            return False, self._get_verification_block_message()
 
         success, message, _ = self.update.use_hint(game)
         return success, message
@@ -300,6 +337,29 @@ class GameService:
             badges.append("🧠 Jenius")
 
         return " | ".join(badges) if badges else ""
+
+    @staticmethod
+    def _get_verification_block_message() -> str:
+        """Unified message when player is not verified."""
+        return "⛔ Akun kamu belum terverifikasi, jadi belum bisa main."
+
+    def _is_player_verified(
+        self,
+        telegram_id: int,
+        username: str | None = None,
+        full_name: str | None = None,
+    ) -> bool:
+        """Check (or create) player record and return verification status."""
+        if env.is_admin_username(username):
+            return True
+
+        player = PlayerRepository.get_or_create_by_telegram_id(
+            self.db,
+            telegram_id=telegram_id,
+            username=username,
+            full_name=full_name,
+        )
+        return bool(getattr(player, "is_verified", False))
 
     def _format_answer_pattern(self, answer: str) -> str:
         """Mask answer pattern like AYAM -> A**M to guide players."""

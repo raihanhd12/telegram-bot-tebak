@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, Integer, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -24,6 +24,7 @@ class Player(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     total_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     games_played: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     games_won: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -12,6 +12,8 @@ from src.bot.handlers.commands import (
     skip_command,
     start_command,
     tebak_command,
+    unverify_command,
+    verify_command,
 )
 
 __all__ = [
@@ -24,4 +26,6 @@ __all__ = [
     "refresh_command",
     "initiate_command",
     "deinitiate_command",
+    "verify_command",
+    "unverify_command",
 ]

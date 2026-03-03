@@ -32,8 +32,11 @@ from src.bot.handlers.commands import (
     skip_command,
     start_command,
     tebak_command,
+    unverify_command,
+    verify_command,
 )
 from src.bot.utils.helpers import build_scope_chat_id, get_message_thread_id, is_topic_allowed
+from src.bot.utils.timers import cancel_game_countdown, get_remaining_seconds
 
 # Configure logging
 logging.basicConfig(
@@ -56,6 +59,8 @@ async def post_init(application: Application) -> None:
             BotCommand("refresh", "Generate soal TTS baru (admin)"),
             BotCommand("initiate", "Kunci bot di topic ini (admin)"),
             BotCommand("deinitiate", "Lepas kunci topic (admin)"),
+            BotCommand("verify", "Verifikasi pemain (admin)"),
+            BotCommand("unverify", "Cabut verifikasi pemain (admin)"),
         ]
     )
     logger.info(f"Bot started successfully! @{application.bot.username}")
@@ -114,6 +119,15 @@ async def handle_message(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
         )
         response_text = message or "❌ Terjadi kesalahan saat memproses jawaban."
 
+        active_after = game_service.get_active_game(scoped_chat_id)
+        if is_correct:
+            cancel_game_countdown(scoped_chat_id)
+        elif active_after and active_after.expires_at:
+            remaining_seconds = get_remaining_seconds(active_after.expires_at)
+            response_text = f"{response_text}\n⏱️ Sisa waktu: {remaining_seconds} detik."
+        elif not active_after:
+            cancel_game_countdown(scoped_chat_id)
+
         # Send the response
         await update.effective_message.reply_text(
             response_text,
@@ -146,6 +160,8 @@ def main() -> None:
     application.add_handler(CommandHandler("refresh", refresh_command))
     application.add_handler(CommandHandler("initiate", initiate_command))
     application.add_handler(CommandHandler("deinitiate", deinitiate_command))
+    application.add_handler(CommandHandler("verify", verify_command))
+    application.add_handler(CommandHandler("unverify", unverify_command))
 
     # Register message handler for answers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

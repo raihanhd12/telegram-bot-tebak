@@ -100,6 +100,14 @@ def parse_list_env(key: str, default: list | None = None, separator: str = ",") 
     return [item.strip() for item in value.split(separator) if item.strip()]
 
 
+def normalize_telegram_username(username: str | None) -> str:
+    """Normalize Telegram username for matching."""
+    if not username:
+        return ""
+    cleaned = username.strip().lstrip("@").lower()
+    return cleaned
+
+
 # ================================
 # 🏗️ APPLICATION SETTINGS
 # ================================
@@ -178,6 +186,18 @@ else:
 # ================================
 BOT_TOKEN = get_env("BOT_TOKEN") or ""
 BOT_USERNAME = get_env("BOT_USERNAME") or ""
+ADMIN_TELEGRAM_USERNAMES = tuple(
+    normalize_telegram_username(item)
+    for item in parse_list_env("ADMIN_TELEGRAM_USERNAMES", default=[])
+    if normalize_telegram_username(item)
+)
+ADMIN_TELEGRAM_USERNAMES_SET = set(ADMIN_TELEGRAM_USERNAMES)
+
+
+def is_admin_username(username: str | None) -> bool:
+    """Check whether username is in configured admin allowlist."""
+    normalized = normalize_telegram_username(username)
+    return normalized in ADMIN_TELEGRAM_USERNAMES_SET if normalized else False
 
 # ================================
 # 🎮 GAME SETTINGS

@@ -13,12 +13,15 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 ## Fitur Utama
 - Command game: `/start`, `/help`, `/tebak`, `/skip`, `/hint`, `/skor`
 - Refresh bank soal dari LLM: `/refresh` (admin only)
+- Admin bot dari allowlist `.env` (`ADMIN_TELEGRAM_USERNAMES`)
 - Isolasi game per topic Telegram (forum thread)
 - Lock bot ke satu topic dengan `/initiate` (admin)
 - Auto reset bank soal saat stok fresh habis
 - Soal campuran gaya TTS (lucu + mind-blowing)
+- Gate verifikasi pemain (`players.is_verified`)
 - Satu game aktif per chat
 - Timeout game
+- Countdown otomatis 3..2..1 lalu "waktu habis"
 - Hint buka huruf jawaban dengan penalty poin
 - Leaderboard top pemain
 - Persistensi data dengan SQLAlchemy + Alembic
@@ -51,6 +54,7 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 - set game status `COMPLETED`
 5. Bot kirim feedback benar/salah + poin.
 6. Jika benar, bot tampilkan jawaban + keterangan (twist lucu).
+7. Jika jawaban salah, bot tampilkan sisa waktu (detik) ronde berjalan.
 
 ### 3) Flow `/hint`
 1. Handler panggil `GameService.use_hint()`.
@@ -108,6 +112,7 @@ cp .env.example .env
 
 Minimal isi variabel berikut di `.env`:
 - `BOT_TOKEN`
+- `ADMIN_TELEGRAM_USERNAMES` (contoh: `raihanhd,adminlain`)
 - `DATABASE_URL`
 - `GAME_TIMEOUT`
 - `HINT_PENALTY`
@@ -138,9 +143,12 @@ poetry run python main.py
 - `/skip` -> lewati game aktif
 - `/hint` -> minta hint
 - `/skor` -> leaderboard
-- `/refresh` -> generate soal dari LLM (admin)
+- `/refresh` -> generate soal kategori `mind_blowing` dari LLM (admin)
 - `/initiate` -> lock bot ke topic saat ini (admin)
 - `/deinitiate` -> lepas topic lock (admin)
+- `/verify @username` -> verifikasi pemain (admin)
+- `/unverify @username` -> cabut verifikasi pemain (admin)
+- `verify/unverify` juga bisa via reply ke pesan user, atau pakai `telegram_id`.
 
 ## Mode Topic (Forum Group)
 - Secara default game sudah **terpisah per topic**.
@@ -167,3 +175,5 @@ poetry run isort src tests
 - Jangan commit token/API key ke git.
 - Handler Telegram harus tipis; logic utama tetap di service.
 - Jika menambah env baru: update `src/config/env.py` + `.env.example` + README ini.
+- User non-admin butuh `players.is_verified=true` agar bisa main.
+- Admin bot diambil dari `ADMIN_TELEGRAM_USERNAMES` (username Telegram, pisahkan dengan koma).
