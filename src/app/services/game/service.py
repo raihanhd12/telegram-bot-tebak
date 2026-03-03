@@ -33,6 +33,7 @@ class GameService:
         game_timeout: int = 60,
         hint_penalty: float = 0.5,
         max_hints: int = 3,
+        max_used_count: int = 1,
     ):
         """
         Initialize the game service.
@@ -42,14 +43,22 @@ class GameService:
             game_timeout: Game timeout in seconds (default: 60)
             hint_penalty: Penalty per hint as decimal (default: 0.5 = 50%)
             max_hints: Maximum hints per game (default: 3)
+            max_used_count: Maximum allowed question reuse count (default: 1)
         """
         self.db = db
         self.game_timeout = game_timeout
         self.hint_penalty = hint_penalty
         self.max_hints = max_hints
+        self.max_used_count = max(1, int(max_used_count))
 
         # Initialize sub-services
-        self.create = GameCreateService(db, game_timeout, hint_penalty, max_hints)
+        self.create = GameCreateService(
+            db,
+            game_timeout,
+            hint_penalty,
+            max_hints,
+            max_used_count=self.max_used_count,
+        )
         self.read = GameReadService(db)
         self.update = GameUpdateService(db, game_timeout, hint_penalty, max_hints)
 
@@ -97,7 +106,11 @@ class GameService:
             return None, f"❌ Kategori tidak valid: {e}"
 
         # Check for fresh questions
-        fresh_count = QuestionRepository.count_active_questions(self.db, validated_category)
+        fresh_count = QuestionRepository.count_fresh_questions(
+            self.db,
+            validated_category,
+            max_used_count=self.max_used_count,
+        )
 
         if fresh_count == 0:
             empty_msg = (

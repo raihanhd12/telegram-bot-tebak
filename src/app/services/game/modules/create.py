@@ -25,6 +25,7 @@ class GameCreateService:
         game_timeout: int = 60,
         hint_penalty: float = 0.5,
         max_hints: int = 3,
+        max_used_count: int = 1,
     ):
         """
         Initialize the create service.
@@ -34,11 +35,13 @@ class GameCreateService:
             game_timeout: Game timeout in seconds
             hint_penalty: Penalty multiplier per hint
             max_hints: Maximum allowed hints
+            max_used_count: Maximum allowed question reuse count
         """
         self.db = db
         self.game_timeout = game_timeout
         self.hint_penalty = hint_penalty
         self.max_hints = max_hints
+        self.max_used_count = max(1, int(max_used_count))
 
     def start_game(
         self,
@@ -84,11 +87,11 @@ class GameCreateService:
         )
 
         # Get a fresh question
-        question = QuestionRepository.get_fresh_question(self.db, category)
-        if not question:
-            # Auto-reset exhausted question pool and try again.
-            QuestionRepository.reset_question_pool(self.db, category)
-            question = QuestionRepository.get_fresh_question(self.db, category)
+        question = QuestionRepository.get_fresh_question(
+            self.db,
+            category,
+            max_used_count=self.max_used_count,
+        )
 
         if not question:
             return None, starter, False

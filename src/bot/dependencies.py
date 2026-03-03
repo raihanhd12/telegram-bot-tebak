@@ -18,6 +18,7 @@ def get_game_service() -> GameService:
         game_timeout=env.GAME_TIMEOUT,
         hint_penalty=env.HINT_PENALTY,
         max_hints=env.MAX_HINTS,
+        max_used_count=env.MAX_USED_COUNT,
     )
 
 

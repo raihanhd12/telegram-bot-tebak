@@ -16,7 +16,7 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 - Admin bot dari allowlist `.env` (`ADMIN_TELEGRAM_USERNAMES`)
 - Isolasi game per topic Telegram (forum thread)
 - Lock bot ke satu topic dengan `/initiate` (admin)
-- Auto reset bank soal saat stok fresh habis
+- Soal tidak diulang sampai admin menambah bank soal baru
 - Soal campuran gaya TTS (lucu + mind-blowing)
 - Gate verifikasi pemain (`players.is_verified`)
 - Satu game aktif per chat
@@ -40,7 +40,7 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 2. Jika masih ada game aktif, bot menolak membuat ronde baru.
 3. `CommandHandler` di `src/bot/handlers/commands.py` memanggil `GameService.start_game()`.
 4. Service ambil soal fresh dari `QuestionRepository`.
-5. Jika stok fresh habis, service reset pool soal lalu ambil ulang.
+5. Jika stok fresh habis, game berhenti sampai admin menambah soal baru via `/refresh`.
 6. Service membuat game baru + player/game_player bila perlu.
 7. Bot balas pertanyaan TTS + pola jawaban (contoh `A**M`), poin, dan durasi.
 
@@ -117,7 +117,7 @@ Minimal isi variabel berikut di `.env`:
 - `GAME_TIMEOUT`
 - `HINT_PENALTY`
 - `MAX_HINTS`
-- `MAX_USED_COUNT`
+- `MAX_USED_COUNT` (set `1` untuk mode tanpa pengulangan soal)
 
 Untuk fitur refresh LLM:
 - `LLM_URL`

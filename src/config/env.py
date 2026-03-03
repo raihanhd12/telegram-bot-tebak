@@ -205,7 +205,7 @@ def is_admin_username(username: str | None) -> bool:
 GAME_TIMEOUT = parse_int_env("GAME_TIMEOUT", 60)  # seconds
 HINT_PENALTY = float(get_env("HINT_PENALTY", "0.5"))  # 50% penalty per hint
 MAX_HINTS = parse_int_env("MAX_HINTS", 3)
-MAX_USED_COUNT = parse_int_env("MAX_USED_COUNT", 3)  # questions can be reused 3 times
+MAX_USED_COUNT = max(1, parse_int_env("MAX_USED_COUNT", 1))  # default: no repeated questions
 
 # ================================
 # 🧠 LLM INTEGRATION SETTINGS (Agent API)

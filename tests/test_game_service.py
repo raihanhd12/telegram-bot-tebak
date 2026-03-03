@@ -2,8 +2,8 @@
 
 from unittest.mock import Mock, patch
 
-from src.app.services.game.service import GameService
 from src.app.services.game import service as game_service_module
+from src.app.services.game.service import GameService
 
 
 class TestGameService:
@@ -54,6 +54,29 @@ class TestGameService:
         assert game is None
         assert "belum terverifikasi" in message
 
+    def test_start_game_blocked_when_fresh_questions_exhausted(self):
+        """Should not start when all active questions have reached reuse limit."""
+        self.service.read.get_active_game = Mock(return_value=None)
+        self.service._is_player_verified = Mock(return_value=True)
+        self.service.create.start_game = Mock()
+
+        with patch.object(
+            game_service_module.QuestionRepository,
+            "count_fresh_questions",
+            return_value=0,
+        ):
+            game, message = self.service.start_game(
+                chat_id=123,
+                starter_telegram_id=456,
+                starter_username="u",
+                starter_full_name="U",
+                category=None,
+            )
+
+        assert game is None
+        assert "Tidak ada soal tersedia" in message
+        self.service.create.start_game.assert_not_called()
+
     def test_submit_answer_blocked_when_player_unverified(self):
         """Unverified player should not be able to submit answer."""
         self.service.read.get_active_game = Mock(return_value=Mock())
@@ -83,21 +106,27 @@ class TestGameService:
 
     def test_is_player_verified_admin_allowlist_bypass(self):
         """Configured admin username should bypass player verification flag."""
-        with patch.object(game_service_module.env, "is_admin_username", return_value=True):
-            with patch.object(
-                game_service_module.PlayerRepository,
-                "get_or_create_by_telegram_id",
-            ) as mock_get_or_create:
-                assert self.service._is_player_verified(telegram_id=123, username="admin")
-                mock_get_or_create.assert_not_called()
+        with patch.object(
+            game_service_module.env,
+            "is_admin_username",
+            return_value=True,
+        ), patch.object(
+            game_service_module.PlayerRepository,
+            "get_or_create_by_telegram_id",
+        ) as mock_get_or_create:
+            assert self.service._is_player_verified(telegram_id=123, username="admin")
+            mock_get_or_create.assert_not_called()
 
     def test_is_player_verified_non_admin_reads_player_flag(self):
         """Non-admin users should follow players.is_verified state."""
         player = Mock(is_verified=False)
-        with patch.object(game_service_module.env, "is_admin_username", return_value=False):
-            with patch.object(
-                game_service_module.PlayerRepository,
-                "get_or_create_by_telegram_id",
-                return_value=player,
-            ):
-                assert self.service._is_player_verified(telegram_id=123, username="user") is False
+        with patch.object(
+            game_service_module.env,
+            "is_admin_username",
+            return_value=False,
+        ), patch.object(
+            game_service_module.PlayerRepository,
+            "get_or_create_by_telegram_id",
+            return_value=player,
+        ):
+            assert self.service._is_player_verified(telegram_id=123, username="user") is False

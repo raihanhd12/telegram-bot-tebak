@@ -5,6 +5,7 @@ CRUD helpers for Question model. Handles fetching and managing
 questions for the game.
 """
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -23,6 +24,17 @@ class QuestionRepository:
         return value.value if hasattr(value, "value") else value
 
     @staticmethod
+    def _canonicalize_word(word: str) -> str:
+        """
+        Canonicalize question text for duplicate detection.
+
+        The canonical form ignores case, whitespace, and punctuation so
+        variants like "Apa itu kopi?" and "apa itu kopi!!!" are treated as duplicates.
+        """
+        normalized = " ".join(str(word).split()).casefold()
+        return re.sub(r"[\W_]+", "", normalized, flags=re.UNICODE)
+
+    @staticmethod
     def get_by_id(db: Session, question_id: int) -> Question | None:
         """Get question by ID"""
         return db.query(Question).filter(Question.id == question_id).first()
@@ -34,7 +46,7 @@ class QuestionRepository:
 
     @staticmethod
     def get_fresh_question(
-        db: Session, category: Category | None = None, max_used_count: int = 3
+        db: Session, category: Category | None = None, max_used_count: int = 1
     ) -> Question | None:
         """
         Get a fresh question (unused or used less than max_used_count times).
@@ -47,12 +59,34 @@ class QuestionRepository:
         Returns:
             Question object or None if no fresh questions available
         """
-        query = db.query(Question).filter(Question.is_active, Question.used_count < max_used_count)
+        effective_max_used_count = max(1, int(max_used_count))
+        query = db.query(Question).filter(
+            Question.is_active,
+            Question.used_count < effective_max_used_count,
+        )
 
         if category:
             query = query.filter(Question.category == QuestionRepository._enum_value(category))
 
         return query.order_by(Question.used_count.asc(), Question.created_at.desc()).first()
+
+    @staticmethod
+    def count_fresh_questions(
+        db: Session,
+        category: Category | None = None,
+        max_used_count: int = 1,
+    ) -> int:
+        """Count available fresh questions based on usage threshold."""
+        effective_max_used_count = max(1, int(max_used_count))
+        query = db.query(Question).filter(
+            Question.is_active,
+            Question.used_count < effective_max_used_count,
+        )
+
+        if category:
+            query = query.filter(Question.category == QuestionRepository._enum_value(category))
+
+        return query.count()
 
     @staticmethod
     def get_random_question(db: Session, category: Category | None = None) -> Question | None:
@@ -113,13 +147,13 @@ class QuestionRepository:
         if not questions_data:
             return []
 
-        # 1) Deduplicate incoming payload by `word` (preserve first occurrence).
+        # 1) Deduplicate incoming payload by canonicalized `word`.
         unique_payload: list[dict[str, Any]] = []
         seen_words: set[str] = set()
         for data in questions_data:
             word = str(data.get("word", "")).strip()
-            canonical_word = word.casefold()
-            if not word or canonical_word in seen_words:
+            canonical_word = QuestionRepository._canonicalize_word(word)
+            if not word or not canonical_word or canonical_word in seen_words:
                 continue
             seen_words.add(canonical_word)
             normalized = dict(data)
@@ -129,12 +163,19 @@ class QuestionRepository:
         if not unique_payload:
             return []
 
-        # 2) Skip rows that already exist in DB.
-        candidate_words = [item["word"] for item in unique_payload]
-        existing_words = {
-            row[0] for row in db.query(Question.word).filter(Question.word.in_(candidate_words)).all()
+        # 2) Skip rows that already exist in DB (canonical duplicate-safe).
+        existing_canonical_words = {
+            QuestionRepository._canonicalize_word(row[0])
+            for row in db.query(Question.word).all()
+            if row[0]
         }
-        to_insert_payload = [item for item in unique_payload if item["word"] not in existing_words]
+        to_insert_payload: list[dict[str, Any]] = []
+        for item in unique_payload:
+            canonical_word = QuestionRepository._canonicalize_word(item["word"])
+            if canonical_word in existing_canonical_words:
+                continue
+            existing_canonical_words.add(canonical_word)
+            to_insert_payload.append(item)
 
         if not to_insert_payload:
             return []
