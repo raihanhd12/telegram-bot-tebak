@@ -69,7 +69,7 @@ class GameService:
             starter_telegram_id: ID of user starting the game
             starter_username: Username of starter
             starter_full_name: Full name of starter
-            category: Optional category ('lucu' or 'mind_blowing')
+            category: Optional category filter (internal use)
 
         Returns:
             Tuple of (Game, formatted_message) or (None, error_message)
@@ -77,16 +77,21 @@ class GameService:
         try:
             validated_category = GameValidators.validate_category(category)
         except ValueError as e:
-            return None, f"❌ Kategori tidak valid: {e}\n\nPilih: *lucu* atau *mind_blowing*"
+            return None, f"❌ Kategori tidak valid: {e}"
 
         # Check for fresh questions
         fresh_count = QuestionRepository.count_active_questions(self.db, validated_category)
 
         if fresh_count == 0:
+            empty_msg = (
+                "❌ Tidak ada soal tersedia.\n\nAdmin bisa gunakan /refresh untuk generate soal baru."
+                if validated_category is None
+                else "❌ Tidak ada soal tersedia untuk kategori ini.\n\n"
+                "Admin bisa gunakan /refresh untuk generate soal baru."
+            )
             return (
                 None,
-                "❌ Tidak ada soal tersedia untuk kategori ini.\n\n"
-                "Admin bisa gunakan /refresh untuk generate soal baru.",
+                empty_msg,
             )
 
         game, player, was_created = self.create.start_game(
@@ -227,30 +232,27 @@ class GameService:
         category_emoji = "😂" if question.category == Category.LUCU else "🤯"
 
         header = (
-            f"🎮 *TEBAK KATA* {category_emoji}\n\n"
+            f"🎮 TEBAK TTS {category_emoji}\n\n"
             if was_new
-            else f"🔄 *Game Masih Aktif* {category_emoji}\n\n"
+            else f"🔄 Game Masih Aktif {category_emoji}\n\n"
         )
-
-        word_display = " ".join(list(question.word.upper()))
 
         message = (
             f"{header}"
-            f"📝 *Tebak kata ini:*\n\n"
-            f"`{word_display}`\n\n"
-            f"📌 Kategori: *{self._format_category(question.category)}*\n"
-            f"💰 Poin: *{question.points}*\n"
-            f"⏱️ Waktu: *{self.game_timeout} detik*\n\n"
-            f"Ketik jawabanmu langsung di chat!\n"
-            f"Ketik /hint untuk bantuan."
+            f"🧩 Pertanyaan:\n{question.word}\n\n"
+            f"📌 Kategori: {self._format_category(question.category)}\n"
+            f"💰 Poin: {question.points}\n"
+            f"⏱️ Waktu: {self.game_timeout} detik\n\n"
+            f"Ketik jawaban TTS kamu langsung di chat.\n"
+            f"Gunakan /hint kalau buntu."
         )
 
         if not was_new:
             message = (
                 f"{header}"
-                f"Game masih aktif! Kata yang harus ditebak:\n\n"
-                f"`{word_display}`\n\n"
-                f"⏱️ Sisa waktu: cek status game"
+                f"Game masih aktif, pertanyaannya:\n\n"
+                f"{question.word}\n\n"
+                f"⏱️ Sisa waktu: cek status game aktif."
             )
 
         return message
@@ -268,12 +270,12 @@ class GameService:
         badges = []
 
         if player.total_score >= 1000:
-            badges.append("🏆 *Raja Tebak Kata*")
+            badges.append("🏆 Raja Tebak Kata")
         if player.current_streak >= 5:
-            badges.append("🔥 *On Fire!*")
+            badges.append("🔥 On Fire!")
         if player.current_streak >= 10:
-            badges.append("⚡ *Legendary*")
+            badges.append("⚡ Legendary")
         if player.games_won >= 10:
-            badges.append("🧠 *Jenius*")
+            badges.append("🧠 Jenius")
 
         return " | ".join(badges) if badges else ""

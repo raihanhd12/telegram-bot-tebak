@@ -25,11 +25,17 @@ class GameValidators:
         Returns:
             True if the answer is correct (case-insensitive, stripped)
         """
-        # Normalize both answers
-        normalized_user = user_answer.strip().lower()
-        normalized_correct = correct_answer.strip().lower()
+        # Normalize both answers to make matching more forgiving for TTS-style answers.
+        normalized_user = GameValidators._normalize_answer(user_answer)
+        normalized_correct = GameValidators._normalize_answer(correct_answer)
 
         return normalized_user == normalized_correct
+
+    @staticmethod
+    def _normalize_answer(text: str) -> str:
+        """Normalize answer by removing spaces and punctuation."""
+        lowered = text.strip().lower()
+        return re.sub(r"[\W_]+", "", lowered, flags=re.UNICODE)
 
     @staticmethod
     def validate_hint_limit(game: Game, max_hints: int = 3) -> bool:
@@ -108,8 +114,8 @@ class GameValidators:
         Raises:
             ValueError: If category is invalid
         """
-        if category is None:
-            return Category.LUCU  # Default category
+        if category is None or not category.strip():
+            return None
 
         category = category.lower().strip()
 

@@ -29,7 +29,7 @@ class QuestionRepository:
 
     @staticmethod
     def get_by_word(db: Session, word: str) -> Question | None:
-        """Get question by word (scrambled letters)"""
+        """Get question by question text (`word` field)."""
         return db.query(Question).filter(Question.word == word).first()
 
     @staticmethod
@@ -117,10 +117,11 @@ class QuestionRepository:
         unique_payload: list[dict[str, Any]] = []
         seen_words: set[str] = set()
         for data in questions_data:
-            word = str(data.get("word", "")).strip().upper()
-            if not word or word in seen_words:
+            word = str(data.get("word", "")).strip()
+            canonical_word = word.casefold()
+            if not word or canonical_word in seen_words:
                 continue
-            seen_words.add(word)
+            seen_words.add(canonical_word)
             normalized = dict(data)
             normalized["word"] = word
             unique_payload.append(normalized)

@@ -20,30 +20,34 @@ class LPrompts:
         Returns:
             Prompt string for LLM
         """
-        return f"""Generate {count} Indonesian word scramble questions for a fun Telegram game.
+        return f"""Buat {count} soal tebak-tebakan gaya TTS Cak Lontong dalam Bahasa Indonesia.
 
-Requirements:
-- Category: Funny/Slang/Jokes (Lucu)
-- Words must be Indonesian: common slang, funny words, meme references, or everyday words with amusing meanings
-- Difficulty: Mix of easy and medium
-- Format: JSON array of objects
+Target:
+- Kategori: lucu
+- Format: permainan punchline absurd tapi tetap masuk akal kalau dibaca keterangannya
+- Gaya jawaban: singkat (1-3 kata), bukan jawaban literal yang "benar ilmiah"
+- Tidak boleh mengandung SARA, pornografi, atau hinaan personal
+- Pertanyaan harus unik dan tidak menyalin contoh mentah
 
-For each question provide:
+Output HARUS JSON array. Tiap item wajib punya:
 {{
-  "word": "SCRAMBLED_LETTERS",
-  "answer": "CORRECT_ANSWER",
-  "category": "lucu",
+  "word": "Teks pertanyaan, contoh: Ada udang di balik...",
+  "answer": "Jawaban punchline, contoh: Gnadu",
+  "hint": "Keterangan lucu yang menjelaskan twist jawabannya",
   "difficulty": "easy|medium|hard",
-  "hint": "Subtle clue about the word",
-  "points": 50-150
+  "points": 80-140
 }}
 
-Examples:
-- "BUCUAT" → "UCUP" (common nickname)
-- "AGNAMA" → "MANGGA" (everyday word)
-- "ASAYAN" → "YASAN" (slang)
+Contoh gaya:
+- Pertanyaan: "Es es apa yang bisa jalan?"
+  Jawaban: "Eskalator"
+  Keterangan: "Kalau ga jalan ya tangga."
 
-Return ONLY valid JSON. No explanation."""
+- Pertanyaan: "Kirimin uang lewat atm?"
+  Jawaban: "Thanksya"
+  Keterangan: "Thanks ya, sudah diterima."
+
+Keluarkan JSON valid saja, tanpa markdown, tanpa teks tambahan."""
 
     @staticmethod
     def get_mind_blowing_prompt(count: int = 5) -> str:
@@ -56,30 +60,34 @@ Return ONLY valid JSON. No explanation."""
         Returns:
             Prompt string for LLM
         """
-        return f"""Generate {count} Indonesian word scramble questions for a fun Telegram game.
+        return f"""Buat {count} soal tebak-tebakan gaya TTS Cak Lontong dalam Bahasa Indonesia.
 
-Requirements:
-- Category: Mind Blowing (Riddles, Puzzles, Fun Facts, Logical Words)
-- Words must be Indonesian: abstract concepts, scientific terms, philosophical words, or surprising words
-- Difficulty: Medium to Hard
-- Format: JSON array of objects
+Target:
+- Kategori: mind_blowing
+- Pertanyaan bernuansa logika, paradoks ringan, atau sudut pandang tak terduga
+- Jawaban tetap punchline singkat (1-3 kata) dan nyeleneh
+- Keterangan harus membuat jawaban terasa "oh iya juga"
+- Tidak boleh mengandung SARA, pornografi, atau hinaan personal
 
-For each question provide:
+Output HARUS JSON array. Tiap item wajib punya:
 {{
-  "word": "SCRAMBLED_LETTERS",
-  "answer": "CORRECT_ANSWER",
-  "category": "mind_blowing",
+  "word": "Teks pertanyaan",
+  "answer": "Jawaban punchline",
+  "hint": "Keterangan/twist penjelas",
   "difficulty": "medium|hard",
-  "hint": "Think about... [context clue]",
-  "points": 100-200
+  "points": 100-180
 }}
 
-Examples:
-- "ASKAJAR" → "KASAJAR" (abstract concept)
-- "MAIKSEM" → "KESIMA" (uncommon word)
-- "GANUJI" → "JUANG" (meaningful word)
+Contoh gaya:
+- Pertanyaan: "Yang menyebabkan haus saat ramadan?"
+  Jawaban: "Cuaca"
+  Keterangan: "Kalau panas ya bikin haus."
 
-Return ONLY valid JSON. No explanation."""
+- Pertanyaan: "Hati senang walaupun tak punya..."
+  Jawaban: "Kaca"
+  Keterangan: "Punya kaca juga tidak wajib."
+
+Keluarkan JSON valid saja, tanpa markdown, tanpa teks tambahan."""
 
     @staticmethod
     def get_prompt(category: Category, count: int = 5) -> str:
@@ -108,4 +116,6 @@ Return ONLY valid JSON. No explanation."""
         Returns:
             System prompt string
         """
-        return """You are a creative word puzzle generator for an Indonesian Telegram game. Your task is to generate fun, engaging word scramble questions that are culturally relevant to Indonesian speakers. Always respond with valid JSON only, no additional text."""
+        return """Kamu adalah penulis soal TTS Cak Lontong berbahasa Indonesia untuk bot Telegram.
+Fokusmu: pertanyaan jebakan + jawaban punchline + keterangan lucu yang membuat twist jadi masuk akal.
+Selalu balas JSON valid saja tanpa teks tambahan."""

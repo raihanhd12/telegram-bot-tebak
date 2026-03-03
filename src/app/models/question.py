@@ -23,6 +23,7 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Historical field name `word`; in TTS mode this stores the question text.
     word: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     answer: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[Category] = mapped_column(

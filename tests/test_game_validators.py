@@ -16,6 +16,8 @@ class TestGameValidators:
         assert GameValidators.validate_answer("ucup", "UCUP") is True
         assert GameValidators.validate_answer("Ucup", "ucup") is True
         assert GameValidators.validate_answer("  ucup  ", "UCUP") is True
+        assert GameValidators.validate_answer("thanks ya", "Thanksya") is True
+        assert GameValidators.validate_answer("thanks-ya!", "Thanks ya") is True
 
     def test_validate_answer_incorrect(self):
         """Test answer validation with incorrect answer"""
@@ -35,6 +37,7 @@ class TestGameValidators:
 
     def test_validate_category(self):
         """Test category validation"""
+        assert GameValidators.validate_category(None) is None
         assert GameValidators.validate_category("lucu") == Category.LUCU
         assert GameValidators.validate_category("mind_blowing") == Category.MIND_BLOWING
         assert GameValidators.validate_category("mindblowing") == Category.MIND_BLOWING

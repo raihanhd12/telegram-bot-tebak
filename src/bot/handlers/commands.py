@@ -16,7 +16,14 @@ from telegram.ext import ContextTypes
 import src.config.env as env
 from src.bot.dependencies import get_game_service, get_llm_service
 from src.bot.keyboards import main_menu_keyboard
-from src.bot.utils.helpers import is_user_admin
+from src.bot.utils.helpers import (
+    bind_topic,
+    build_scope_chat_id,
+    get_bound_topic,
+    get_message_thread_id,
+    is_user_admin,
+    unbind_topic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,26 +52,47 @@ def _get_refresh_cooldown_remaining(chat_id: int) -> int:
     return max(0, cooldown_seconds - elapsed)
 
 
+def _resolve_scope(update: Update) -> tuple[int, int | None, int] | None:
+    """Resolve raw chat/topic and scoped chat ID."""
+    if not update.effective_chat:
+        return None
+    chat_id = update.effective_chat.id
+    thread_id = get_message_thread_id(update)
+    scoped_chat_id = build_scope_chat_id(chat_id, thread_id)
+    return chat_id, thread_id, scoped_chat_id
+
+
+def _get_topic_lock_message(chat_id: int, thread_id: int | None) -> str | None:
+    """Return rejection message when chat is locked to another topic."""
+    bound_topic = get_bound_topic(chat_id)
+    if bound_topic is None or bound_topic == thread_id:
+        return None
+    return (
+        f"🔒 Bot ini sedang dikunci ke topic `{bound_topic}`.\n"
+        "Jalankan /deinitiate di topic tersebut, atau /initiate di topic ini oleh admin."
+    )
+
+
 async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command - welcome message."""
     if not update.effective_message:
         return
 
     message = (
-        "🎮 *Selamat Datang di Tebak Kata!*\n\n"
-        "Bot tebak kata seru untuk grup Telegram! 🔥\n\n"
+        "🎮 *Selamat Datang di Tebak TTS!*\n\n"
+        "Main tebak-tebakan ala TTS Cak Lontong bareng di grup Telegram. 🔥\n\n"
         "*Perintah Utama:*\n"
         "• `/tebak` - Mulai game baru\n"
-        "• `/tebak lucu` - Mulai kategori Lucu\n"
-        "• `/tebak mindblowing` - Mulai kategori Mind Blowing\n"
         "• `/skip` - Lewati soal sekarang\n"
         "• `/hint` - Dapatkan hint\n"
         "• `/skor` - Lihat leaderboard\n"
         "• `/refresh` - Generate soal baru (Admin)\n\n"
+        "• `/initiate` - Kunci bot ke topic ini (Admin)\n"
+        "• `/deinitiate` - Lepas kunci topic (Admin)\n\n"
         "*Cara Main:*\n"
         "1. Ketik /tebak untuk mulai\n"
-        "2. Tebak kata yang diacak\n"
-        "3. Ketik jawaban langsung di chat\n"
+        "2. Baca pertanyaan jebakan\n"
+        "3. Tebak jawaban nyeleneh ala TTS\n"
         "4. Raih poin dan jadilah juara! 🏆\n\n"
         "Pastikan bot ditambahkan sebagai admin di grup!"
     )
@@ -82,20 +110,21 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     message = (
-        "📖 *Panduan Bermain Tebak Kata*\n\n"
+        "📖 *Panduan Bermain Tebak TTS*\n\n"
         "*Commands:*\n"
         "• `/tebak` - Mulai game baru\n"
-        "• `/tebak lucu` - Kategori Lucu 😂\n"
-        "• `/tebak mindblowing` - Kategori Mind Blowing 🤯\n"
         "• `/skip` - Lewati soal sekarang\n"
-        "• `/hint` - Dapatkan hint (kurangi 50% poin)\n"
-        "• `/skor` - Leaderboard Top 5\n"
+        "• `/hint` - Buka huruf jawaban (kurangi poin)\n"
+        "• `/skor` - Leaderboard Top 5 pemain\n"
         "• `/refresh` - Generate soal baru (Admin)\n\n"
+        "• `/initiate` - Kunci bot ke topic ini (Admin)\n"
+        "• `/deinitiate` - Lepas kunci topic (Admin)\n\n"
         "*Fitur:*\n"
         "• ⏱️ Game timeout 60 detik\n"
         "• 💡 Max 3 hints per game\n"
         "• 🔥 Streak system\n"
-        "• 🏆 Leaderboard per server\n\n"
+        "• 🏆 Leaderboard per server\n"
+        "• 🤖 Soal TTS generate dari AI\n\n"
         # "*Tips Admin:*\n"
         # "• Matikan Privacy Mode di @BotFather\n"
         # "• Jadikan bot sebagai admin grup"
@@ -108,7 +137,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
-async def tebak_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def tebak_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /tebak command - start a new game."""
     if not update.effective_message or not update.effective_chat:
         return
@@ -117,25 +146,30 @@ async def tebak_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not user:
         return
 
-    # Get category from arguments
-    category = None
-    if context.args and len(context.args) > 0:
-        category = context.args[0]
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
+        return
 
     game_service = get_game_service()
     try:
         game, message = game_service.start_game(
-            chat_id=update.effective_chat.id,
+            chat_id=scoped_chat_id,
             starter_telegram_id=user.id,
             starter_username=user.username,
             starter_full_name=user.full_name,
-            category=category,
+            category=None,
         )
         response_text = message or "❌ Gagal memulai game. Silakan coba lagi."
 
         await update.effective_message.reply_text(
             response_text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=None,
         )
     except Exception:
         logger.exception("Failed to start game")
@@ -159,7 +193,15 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not user:
         return
 
-    chat_id = update.effective_chat.id
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
+        return
 
     # Check if user is admin (for now, allow everyone to skip)
     is_admin = await is_user_admin(update, context, user.id)
@@ -167,14 +209,14 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     game_service = get_game_service()
     try:
         success, message = game_service.skip_game(
-            chat_id=chat_id,
+            chat_id=scoped_chat_id,
             user_telegram_id=user.id,
             is_admin=is_admin,
         )
 
         await update.effective_message.reply_text(
             message,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=None,
         )
     except Exception:
         logger.exception("Failed to skip game")
@@ -191,9 +233,19 @@ async def score_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
     if not update.effective_message or not update.effective_chat:
         return
 
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
+        return
+
     game_service = get_game_service()
     try:
-        leaderboard = game_service.get_leaderboard(chat_id=update.effective_chat.id, limit=5)
+        leaderboard = game_service.get_leaderboard(chat_id=scoped_chat_id, limit=5)
 
         await update.effective_message.reply_text(
             leaderboard,
@@ -214,15 +266,23 @@ async def hint_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     if not update.effective_message or not update.effective_chat:
         return
 
-    chat_id = update.effective_chat.id
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
+        return
 
     game_service = get_game_service()
     try:
-        success, message = game_service.use_hint(chat_id=chat_id)
+        success, message = game_service.use_hint(chat_id=scoped_chat_id)
 
         await update.effective_message.reply_text(
             message,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=None,
         )
     except Exception:
         logger.exception("Failed to use hint")
@@ -234,12 +294,96 @@ async def hint_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         game_service.db.close()
 
 
+async def initiate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lock the bot to current topic (admin only)."""
+    if not update.effective_message or not update.effective_chat:
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    chat_id = update.effective_chat.id
+    thread_id = get_message_thread_id(update)
+
+    if not thread_id:
+        await update.effective_message.reply_text(
+            "❌ `/initiate` hanya bisa dipakai di dalam topic forum.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    is_admin = await is_user_admin(update, context, user.id)
+    if not is_admin:
+        await update.effective_message.reply_text(
+            "❌ Hanya admin yang bisa lock topic.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    previous_topic = get_bound_topic(chat_id)
+    bind_topic(chat_id, thread_id)
+
+    if previous_topic == thread_id:
+        message = f"✅ Bot sudah aktif di topic ini (`{thread_id}`)."
+    elif previous_topic is None:
+        message = f"✅ Bot dikunci ke topic ini (`{thread_id}`)."
+    else:
+        message = (
+            f"✅ Topic lock dipindah dari `{previous_topic}` ke `{thread_id}`.\n"
+            "Sekarang bot hanya merespon di topic ini."
+        )
+
+    await update.effective_message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+
+async def deinitiate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove topic lock (admin only)."""
+    if not update.effective_message or not update.effective_chat:
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    is_admin = await is_user_admin(update, context, user.id)
+    if not is_admin:
+        await update.effective_message.reply_text(
+            "❌ Hanya admin yang bisa melepas topic lock.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    chat_id = update.effective_chat.id
+    was_unbound = unbind_topic(chat_id)
+
+    if was_unbound:
+        await update.effective_message.reply_text(
+            "✅ Topic lock dilepas. Bot sekarang bisa dipakai di semua topic.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        await update.effective_message.reply_text(
+            "ℹ️ Chat ini belum punya topic lock.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /refresh command - generate new questions (Admin only)."""
     if not update.effective_message or not update.effective_chat:
         return
 
-    chat_id = update.effective_chat.id
+    scope = _resolve_scope(update)
+    if not scope:
+        return
+    chat_id, thread_id, scoped_chat_id = scope
+
+    topic_lock_message = _get_topic_lock_message(chat_id, thread_id)
+    if topic_lock_message:
+        await update.effective_message.reply_text(topic_lock_message, parse_mode=ParseMode.MARKDOWN)
+        return
+
     user = update.effective_user
     if not user:
         return
@@ -267,7 +411,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    refresh_lock = _get_refresh_lock(chat_id)
+    refresh_lock = _get_refresh_lock(scoped_chat_id)
     if refresh_lock.locked():
         await update.effective_message.reply_text(
             "⏳ Refresh masih berjalan. Tunggu proses saat ini selesai.",
@@ -275,7 +419,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    cooldown_remaining = _get_refresh_cooldown_remaining(chat_id)
+    cooldown_remaining = _get_refresh_cooldown_remaining(scoped_chat_id)
     if cooldown_remaining > 0:
         await update.effective_message.reply_text(
             f"⏱️ /refresh sedang cooldown. Coba lagi dalam {cooldown_remaining} detik.",
@@ -285,7 +429,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     async with refresh_lock:
         # Re-check inside lock to avoid race when many commands arrive together.
-        cooldown_remaining = _get_refresh_cooldown_remaining(chat_id)
+        cooldown_remaining = _get_refresh_cooldown_remaining(scoped_chat_id)
         if cooldown_remaining > 0:
             await update.effective_message.reply_text(
                 f"⏱️ /refresh sedang cooldown. Coba lagi dalam {cooldown_remaining} detik.",
@@ -307,7 +451,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             response_text = "❌ Gagal generate soal karena koneksi LLM/DB bermasalah."
         finally:
             llm_service.db.close()
-            _refresh_last_run_at[chat_id] = time.monotonic()
+            _refresh_last_run_at[scoped_chat_id] = time.monotonic()
 
         # Update the status message
         try:

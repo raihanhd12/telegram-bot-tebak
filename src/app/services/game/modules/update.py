@@ -4,14 +4,11 @@ Game service update module
 Handles updating game state: skip, hint, expire.
 """
 import datetime
-from datetime import timezone
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from src.app.models import Category, Game, GameStatus
 from src.app.repositories.game import GameRepository
-from src.app.repositories.player import PlayerRepository
 from src.app.repositories.question import QuestionRepository
 from src.app.services.game.modules.validators import GameValidators
 
@@ -57,20 +54,24 @@ class GameUpdateService:
         # Mark game as expired
         GameRepository.set_status(self.db, game, GameStatus.EXPIRED)
 
-        message = "⏰ *Game Dilewati!*\n\n"
+        message = "⏭️ Game dilewati.\n\n"
 
         if reveal_answer:
             question = QuestionRepository.get_by_id(self.db, game.question_id)
             if question:
-                message += f"Jawaban yang benar: *{question.answer}*\n\n"
-                message += f"Kata: {question.word}\n"
-                message += f"Kategori: {self._format_category(question.category)}"
+                message += (
+                    f"🧩 Pertanyaan: {question.word}\n"
+                    f"🎯 Jawaban: {question.answer}\n"
+                )
+                if question.hint:
+                    message += f"💬 Keterangan: {question.hint}\n"
+                message += f"📌 Kategori: {self._format_category(question.category)}"
 
-        message += "\n\nKetik /tebak untuk main lagi!"
+        message += "\n\nKetik /tebak untuk ronde berikutnya."
 
         return message
 
-    def use_hint(self, game: Game) -> tuple[bool, str, Optional[str]]:
+    def use_hint(self, game: Game) -> tuple[bool, str, str | None]:
         """
         Use a hint for the current game.
 
@@ -101,11 +102,7 @@ class GameUpdateService:
         # Increment hint count
         GameRepository.increment_hint_count(self.db, game)
 
-        # Use the question's hint if available
-        if question.hint:
-            return True, f"💡 *Hint*: {question.hint}", None
-
-        # Otherwise, reveal a character (simple implementation)
+        # Reveal answer characters gradually so "keterangan" stays hidden until round ends.
         revealed_char = self._reveal_random_char(question.answer, game.current_hint_count)
         hint_count = game.current_hint_count
 
@@ -116,7 +113,7 @@ class GameUpdateService:
         )
 
         message = (
-            f"💡 *Hint {hint_count}/{self.max_hints}*\n"
+            f"💡 Hint {hint_count}/{self.max_hints}\n"
             f"{revealed_char}\n\n"
             f"Poin tersisa: {remaining_points} (dari {original_points})"
         )
@@ -141,11 +138,15 @@ class GameUpdateService:
 
         question = QuestionRepository.get_by_id(self.db, game.question_id)
 
-        message = "⏰ *Waktu Habis!*\n\n"
+        message = "⏰ Waktu habis.\n\n"
 
         if question:
-            message += f"Jawaban yang benar: *{question.answer}*\n\n"
-            message += f"Kata: {question.word}\n"
+            message += (
+                f"🧩 Pertanyaan: {question.word}\n"
+                f"🎯 Jawaban: {question.answer}\n"
+            )
+            if question.hint:
+                message += f"💬 Keterangan: {question.hint}\n"
 
             # Check if anyone answered correctly
             from src.app.repositories.game_player import GamePlayerRepository
@@ -153,14 +154,14 @@ class GameUpdateService:
             winners = GamePlayerRepository.get_game_leaderboard(self.db, game.id, limit=3)
 
             if winners:
-                message += "\n🏆 *Pemenang:*\n"
+                message += "\n🏆 Pemenang:\n"
                 for gp in winners:
                     if gp.player and gp.player.username:
                         message += f"  • {gp.player.username}: {gp.score} poin\n"
             else:
                 message += "\nTidak ada yang jawab dengan benar. 😢"
 
-        message += "\n\nKetik /tebak untuk main lagi!"
+        message += "\n\nKetik /tebak untuk ronde berikutnya."
 
         return message
 
@@ -187,7 +188,9 @@ class GameUpdateService:
         if game.expires_at:
             new_expires_at = game.expires_at + datetime.timedelta(seconds=additional_seconds)
         else:
-            new_expires_at = datetime.datetime.now(timezone.utc) + datetime.timedelta(seconds=additional_seconds)
+            new_expires_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
+                seconds=additional_seconds
+            )
 
         return GameRepository.set_expires_at(self.db, game, new_expires_at)
 
@@ -211,16 +214,20 @@ class GameUpdateService:
             String with some characters revealed
         """
         chars = list(answer)
-        revealed_count = min(hint_count, len(chars))
+        revealable_indexes = [idx for idx, char in enumerate(chars) if char.isalnum()]
+        if not revealable_indexes:
+            return answer
 
-        # Reveal characters at regular intervals
-        step = max(1, len(chars) // (revealed_count + 1))
+        revealed_count = min(len(revealable_indexes), max(1, hint_count * 2))
+        revealed_indexes = set(revealable_indexes[:revealed_count])
 
         result = []
-        for i, char in enumerate(chars):
-            if i % step == 0 and i < revealed_count * step:
+        for idx, char in enumerate(chars):
+            if not char.isalnum():
                 result.append(char)
+            elif idx in revealed_indexes:
+                result.append(char.upper())
             else:
                 result.append("_")
 
-        return " ".join(result)
+        return "".join(result)

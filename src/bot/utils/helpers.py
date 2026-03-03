@@ -3,12 +3,14 @@ Bot utility functions
 
 Helper functions for the Telegram bot.
 """
+import hashlib
 import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
+_TOPIC_BINDINGS: dict[int, int] = {}
 
 
 async def is_user_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
@@ -39,6 +41,52 @@ async def is_user_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     except Exception as e:
         logger.error(f"Error checking admin status: {e}")
         return False
+
+
+def get_message_thread_id(update: Update) -> int | None:
+    """Get message thread ID (topic ID) from update, if any."""
+    if not update.effective_message:
+        return None
+    thread_id = getattr(update.effective_message, "message_thread_id", None)
+    return int(thread_id) if thread_id is not None else None
+
+
+def build_scope_chat_id(chat_id: int, thread_id: int | None) -> int:
+    """
+    Build a stable game scope ID.
+
+    In forum topics, each topic gets an isolated scope.
+    Outside topics, scope uses raw chat ID.
+    """
+    if not thread_id:
+        return chat_id
+
+    payload = f"{chat_id}:{thread_id}".encode()
+    digest = hashlib.blake2b(payload, digest_size=8, person=b"tebakv1").digest()
+    return int.from_bytes(digest, "big") & ((1 << 63) - 1)
+
+
+def bind_topic(chat_id: int, thread_id: int) -> None:
+    """Bind a chat to one active topic for this bot."""
+    _TOPIC_BINDINGS[chat_id] = thread_id
+
+
+def unbind_topic(chat_id: int) -> bool:
+    """Remove topic binding from a chat."""
+    return _TOPIC_BINDINGS.pop(chat_id, None) is not None
+
+
+def get_bound_topic(chat_id: int) -> int | None:
+    """Return currently bound topic ID for a chat, if any."""
+    return _TOPIC_BINDINGS.get(chat_id)
+
+
+def is_topic_allowed(chat_id: int, thread_id: int | None) -> bool:
+    """Check whether message is allowed under topic binding policy."""
+    bound_topic = get_bound_topic(chat_id)
+    if bound_topic is None:
+        return True
+    return thread_id == bound_topic
 
 
 def scramble_word(word: str) -> str:

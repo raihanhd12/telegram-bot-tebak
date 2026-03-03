@@ -1,7 +1,7 @@
 """
-Telegram Bot "Tebak Kata" - Main Entry Point
+Telegram Bot "Tebak TTS" - Main Entry Point
 
-A fun word-guessing game for Telegram groups with LLM-generated questions.
+A fun TTS-style guessing game for Telegram groups with LLM-generated questions.
 """
 import logging
 import os
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 if __name__ == "__main__":
-    logger.info("Starting Telegram Bot 'Tebak Kata'...")
+    logger.info("Starting Telegram Bot 'Tebak TTS'...")
     logger.info(f"Environment: {env.ENVIRONMENT}")
 
     # Check for bot token

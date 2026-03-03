@@ -5,8 +5,8 @@ Facade service for LLM Agent API-based question generation.
 Agent API format: /api/v1/agents/{agent_id}/execute
 """
 
+import asyncio
 import logging
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -54,7 +54,7 @@ class LLMService:
         )
 
     async def refresh_questions(
-        self, category: Optional[Category] = None, count: int = 5
+        self, category: Category | None = None, count: int = 5
     ) -> tuple[bool, int, str]:
         """
         Generate new questions and save them to the database.
@@ -69,9 +69,16 @@ class LLMService:
         categories = [category] if category else [Category.LUCU, Category.MIND_BLOWING]
         total_added = 0
         messages = []
+        results = await asyncio.gather(
+            *(self.generate.generate_questions(cat, count) for cat in categories),
+            return_exceptions=True,
+        )
 
-        for cat in categories:
-            success, questions, error = await self.generate.generate_questions(cat, count)
+        for cat, result in zip(categories, results, strict=False):
+            if isinstance(result, BaseException):
+                messages.append(f"Gagal generate soal {cat.value}: {str(result)}")
+                continue
+            success, questions, error = result
 
             if not success:
                 messages.append(f"Gagal generate soal {cat.value}: {error}")
@@ -91,7 +98,7 @@ class LLMService:
 
     async def generate_and_save(
         self, category: Category, count: int = 5
-    ) -> tuple[bool, int, Optional[str]]:
+    ) -> tuple[bool, int, str | None]:
         """
         Generate and save questions for a specific category.
 

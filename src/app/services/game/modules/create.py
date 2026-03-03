@@ -56,7 +56,7 @@ class GameCreateService:
             starter_telegram_id: Telegram ID of the user starting the game
             starter_username: Username of the starter
             starter_full_name: Full name of the starter
-            category: Optional category (defaults to LUCU)
+            category: Optional category filter
 
         Returns:
             Tuple of (Game, starter Player, was_created)
@@ -97,7 +97,7 @@ class GameCreateService:
             self.db,
             chat_id=chat_id,
             question_id=question.id,
-            category=category or Category.LUCU,
+            category=question.category,
             status=GameStatus.ACTIVE,
             expires_at=expires_at,
         )
@@ -181,7 +181,15 @@ class GameCreateService:
         PlayerRepository.increment_games_played(self.db, player)
         PlayerRepository.increment_games_won(self.db, player)
 
-        return True, points, f"Jawaban benar! Kamu dapat {points} poin! 🎉"
+        message = (
+            f"✅ Jawaban benar! +{points} poin\n\n"
+            f"🧩 Pertanyaan: {question.word}\n"
+            f"🎯 Jawaban: {question.answer}"
+        )
+        if question.hint:
+            message += f"\n💬 Keterangan: {question.hint}"
+
+        return True, points, message
 
     def ensure_player_in_game(
         self,

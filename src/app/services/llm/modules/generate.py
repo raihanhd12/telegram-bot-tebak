@@ -297,18 +297,31 @@ class LLMGenerateService:
 
         for q in questions:
             try:
+                question_text = self._normalize_text(
+                    q.get("word") or q.get("question") or q.get("pertanyaan")
+                )
+                answer_text = self._normalize_text(q.get("answer") or q.get("jawaban"))
+                keterangan = self._normalize_text(
+                    q.get("hint") or q.get("keterangan") or q.get("explanation")
+                )
+
                 # Ensure required fields exist
-                if not all(key in q for key in ["word", "answer"]):
+                if not question_text or not answer_text:
                     logger.warning(f"Skipping invalid question: {q}")
+                    continue
+
+                # The DB column is limited to 255 chars.
+                if len(question_text) > 250 or len(answer_text) > 250:
+                    logger.warning("Skipping question due to max length constraint: %s", q)
                     continue
 
                 # Normalize the question
                 normalized = {
-                    "word": q["word"].strip().upper(),
-                    "answer": q["answer"].strip().upper(),
+                    "word": question_text,
+                    "answer": answer_text,
                     "category": category,
                     "difficulty": self._parse_difficulty(q.get("difficulty", "medium")),
-                    "hint": q.get("hint", None),
+                    "hint": keterangan,
                     "points": self._parse_points(q.get("points", 100)),
                     "source": QuestionSource.LLM,
                 }
@@ -320,6 +333,14 @@ class LLMGenerateService:
                 continue
 
         return validated
+
+    @staticmethod
+    def _normalize_text(value: Any) -> str | None:
+        """Normalize free-form text from LLM payload."""
+        if value is None:
+            return None
+        text = str(value).strip()
+        return " ".join(text.split()) if text else None
 
     def _parse_difficulty(self, difficulty: str) -> Difficulty:
         """Parse difficulty string to enum"""

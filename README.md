@@ -1,6 +1,6 @@
-# Telegram Bot Tebak Kata
+# Telegram Bot Tebak TTS
 
-Bot Telegram game tebak kata Bahasa Indonesia dengan soal dari LLM Agent API.
+Bot Telegram game tebak-tebakan gaya TTS Cak Lontong Bahasa Indonesia dengan soal dari LLM Agent API.
 
 ## Kenapa `src/bot` tidak digabung ke `app/services`?
 Secara arsitektur, **sebaiknya tetap dipisah**.
@@ -13,10 +13,12 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 ## Fitur Utama
 - Command game: `/start`, `/help`, `/tebak`, `/skip`, `/hint`, `/skor`
 - Refresh bank soal dari LLM: `/refresh` (admin only)
-- Kategori soal: `lucu` dan `mind_blowing`
+- Isolasi game per topic Telegram (forum thread)
+- Lock bot ke satu topic dengan `/initiate` (admin)
+- Soal campuran gaya TTS (lucu + mind-blowing)
 - Satu game aktif per chat
 - Timeout game
-- Hint dengan penalty poin
+- Hint buka huruf jawaban dengan penalty poin
 - Leaderboard top pemain
 - Persistensi data dengan SQLAlchemy + Alembic
 
@@ -30,11 +32,11 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 ## End-to-End Flow
 
 ### 1) Flow `/tebak`
-1. User kirim `/tebak [kategori]` di Telegram.
+1. User kirim `/tebak` di Telegram.
 2. `CommandHandler` di `src/bot/handlers/commands.py` memanggil `GameService.start_game()`.
-3. Service validasi kategori, cek game aktif, ambil soal fresh dari `QuestionRepository`.
+3. Service cek game aktif, ambil soal fresh dari `QuestionRepository`.
 4. Service membuat game baru + player/game_player bila perlu.
-5. Bot balas soal acak (scrambled word), poin, kategori, durasi.
+5. Bot balas pertanyaan TTS, poin, dan durasi.
 
 ### 2) Flow jawaban text biasa
 1. User kirim text biasa (bukan command).
@@ -45,12 +47,13 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
 - update statistik `players` (score, streak, win)
 - set game status `COMPLETED`
 5. Bot kirim feedback benar/salah + poin.
+6. Jika benar, bot tampilkan jawaban + keterangan (twist lucu).
 
 ### 3) Flow `/hint`
 1. Handler panggil `GameService.use_hint()`.
 2. Service cek game aktif, belum expired, dan limit hint.
 3. Service naikkan `current_hint_count`, hitung penalty poin.
-4. Bot kirim hint.
+4. Bot kirim mask jawaban (sebagian huruf dibuka).
 
 ### 4) Flow `/refresh` (LLM)
 1. Handler cek user admin group.
@@ -60,6 +63,9 @@ Kalau digabung, service jadi terikat ke Telegram SDK dan sulit di-reuse (misalny
    - Header: `x-api-key: {LLM_HEADER_API_KEY}` (service key)
    - Payload utama: `{ "user_prompt": "...prompt...", "api_key": "{LLM_MODEL_API_KEY}" }` (model key)
 4. Response diparse, divalidasi, dinormalisasi.
+   - `word` disimpan sebagai **teks pertanyaan TTS**
+   - `answer` disimpan sebagai **jawaban punchline**
+   - `hint` disimpan sebagai **keterangan/twist**
 5. Soal disimpan ke DB via `QuestionRepository.bulk_create_questions()`.
 6. Bot kirim hasil jumlah soal yang berhasil ditambah.
 
@@ -123,15 +129,21 @@ poetry run python main.py
 ```
 
 ## Command Bot
-- `/start-tebak` -> pesan pembuka
+- `/start` -> pesan pembuka
 - `/help` -> panduan command
-- `/tebak` -> mulai game (default kategori `lucu`)
-- `/tebak lucu`
-- `/tebak mindblowing`
+- `/tebak` -> mulai game TTS
 - `/skip` -> lewati game aktif
 - `/hint` -> minta hint
 - `/skor` -> leaderboard
 - `/refresh` -> generate soal dari LLM (admin)
+- `/initiate` -> lock bot ke topic saat ini (admin)
+- `/deinitiate` -> lepas topic lock (admin)
+
+## Mode Topic (Forum Group)
+- Secara default game sudah **terpisah per topic**.
+- Jika ingin bot hanya aktif di satu topic tertentu, jalankan `/initiate` di topic itu.
+- Untuk membuka kembali akses ke semua topic, jalankan `/deinitiate`.
+- Catatan: lock topic disimpan in-memory (reset saat bot restart).
 
 ## Testing dan Quality
 ```bash
